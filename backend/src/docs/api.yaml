@@ -1,0 +1,840 @@
+paths:
+  # ==================== AUTH ENDPOINTS ====================
+  /auth/register:
+    post:
+      tags:
+        - Auth
+      summary: Register a new user
+      description: |
+        Create a new account with encrypted vault.
+        
+        The client must:
+        1. Generate a random salt
+        2. Derive master key from password using Argon2id
+        3. Derive auth verifier from master key
+        4. Generate vault encryption key
+        5. Wrap vault key with master key
+        6. Create initial encrypted vault
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - authVerifier
+                - kdf
+                - wrappedVaultKey
+                - initialVault
+                - device
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                authVerifier:
+                  type: string
+                  description: Base64-encoded auth verifier derived from master password
+                kdf:
+                  $ref: '#/components/schemas/KdfConfig'
+                wrappedVaultKey:
+                  type: string
+                  description: Base64-encoded vault key wrapped with master key
+                initialVault:
+                  type: object
+                  properties:
+                    blob:
+                      type: string
+                      description: Base64-encoded initial encrypted vault
+                    encryption:
+                      $ref: '#/components/schemas/EncryptionInfo'
+                    checksum:
+                      type: string
+                device:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      example: "Chrome on Windows"
+                    platform:
+                      type: string
+                      enum: [web, desktop-windows, desktop-macos, desktop-linux, mobile-ios, mobile-android]
+                    deviceIdentifier:
+                      type: string
+                      description: Unique device fingerprint
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/UserInfo'
+                      tokens:
+                        $ref: '#/components/schemas/TokenPair'
+                      device:
+                        $ref: '#/components/schemas/DeviceInfo'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/prelogin:
+    post:
+      tags:
+        - Auth
+      summary: Get KDF parameters for login
+      description: |
+        Retrieve the KDF (Key Derivation Function) parameters for a user's email.
+        This is required before login to derive the auth verifier client-side.
+        
+        Returns default KDF params if email not found (timing attack mitigation).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+      responses:
+        '200':
+          description: KDF parameters retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      kdf:
+                        $ref: '#/components/schemas/KdfConfig'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Login with auth verifier
+      description: |
+        Authenticate using the auth verifier derived from the master password.
+        
+        Returns:
+        - JWT tokens for API access
+        - Wrapped vault key for client-side decryption
+        - User and device information
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - authVerifier
+                - device
+              properties:
+                email:
+                  type: string
+                  format: email
+                authVerifier:
+                  type: string
+                  description: Base64-encoded auth verifier
+                device:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    platform:
+                      type: string
+                      enum: [web, desktop-windows, desktop-macos, desktop-linux, mobile-ios, mobile-android]
+                    deviceIdentifier:
+                      type: string
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/UserInfo'
+                      tokens:
+                        $ref: '#/components/schemas/TokenPair'
+                      device:
+                        $ref: '#/components/schemas/DeviceInfo'
+                      wrappedVaultKey:
+                        type: string
+                        description: Encrypted vault key (decrypt with master key)
+        '401':
+          description: Invalid credentials or account locked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/refresh:
+    post:
+      tags:
+        - Auth
+      summary: Refresh access token
+      description: |
+        Exchange a refresh token for a new access token and refresh token.
+        
+        **Important**: Refresh tokens are single-use. Each refresh invalidates 
+        the previous token and returns a new pair.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refreshToken
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: Tokens refreshed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      tokens:
+                        $ref: '#/components/schemas/TokenPair'
+        '401':
+          description: Invalid or expired refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/logout:
+    post:
+      tags:
+        - Auth
+      summary: Logout current session
+      description: Revoke the current session and invalidate tokens
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Logged out successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+                        example: Logged out successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/change-password:
+    post:
+      tags:
+        - Auth
+      summary: Change password
+      description: |
+        Change the user's password. This requires:
+        1. Current auth verifier (to verify identity)
+        2. New auth verifier (from new password)
+        3. New wrapped vault key (re-encrypted with new master key)
+        
+        **Note**: All other sessions will be revoked for security.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - currentAuthVerifier
+                - newAuthVerifier
+                - newWrappedVaultKey
+              properties:
+                currentAuthVerifier:
+                  type: string
+                  description: Auth verifier from current password
+                newAuthVerifier:
+                  type: string
+                  description: Auth verifier from new password
+                newWrappedVaultKey:
+                  type: string
+                  description: Vault key wrapped with new master key
+                newKdf:
+                  $ref: '#/components/schemas/KdfConfig'
+      responses:
+        '200':
+          description: Password changed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+        '401':
+          description: Current password incorrect
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ==================== VAULT ENDPOINTS ====================
+  /vault:
+    get:
+      tags:
+        - Vault
+      summary: Get encrypted vault
+      description: |
+        Retrieve the user's encrypted vault blob.
+        
+        The client must decrypt this using the vault key (derived from master key).
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Vault retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      vault:
+                        $ref: '#/components/schemas/VaultData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Vault not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      tags:
+        - Vault
+      summary: Update encrypted vault
+      description: |
+        Update the vault with a new encrypted blob.
+        
+        Uses optimistic locking - include the expected version to prevent conflicts.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - blob
+                - encryption
+                - checksum
+                - expectedVersion
+              properties:
+                blob:
+                  type: string
+                  description: Base64-encoded encrypted vault
+                encryption:
+                  $ref: '#/components/schemas/EncryptionInfo'
+                checksum:
+                  type: string
+                  description: SHA-256 hash of the blob for integrity check
+                expectedVersion:
+                  type: integer
+                  description: Current version (for optimistic locking)
+      responses:
+        '200':
+          description: Vault updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      version:
+                        type: integer
+                        description: New vault version
+                      updatedAt:
+                        type: string
+                        format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Version conflict - vault was modified by another session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /vault/sync:
+    get:
+      tags:
+        - Vault
+      summary: Check vault sync status
+      description: Check if local vault is in sync with server
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: version
+          schema:
+            type: integer
+          required: true
+          description: Local vault version
+        - in: query
+          name: checksum
+          schema:
+            type: string
+          required: true
+          description: Local vault checksum
+      responses:
+        '200':
+          description: Sync status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      needsSync:
+                        type: boolean
+                      serverVersion:
+                        type: integer
+                      serverChecksum:
+                        type: string
+                      lastUpdated:
+                        type: string
+                        format: date-time
+
+  # ==================== SESSIONS ENDPOINTS ====================
+  /sessions:
+    get:
+      tags:
+        - Sessions
+      summary: List active sessions
+      description: Get all active sessions for the current user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Sessions list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      sessions:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Session'
+
+  /sessions/{sessionId}:
+    delete:
+      tags:
+        - Sessions
+      summary: Revoke a session
+      description: Revoke a specific session (cannot revoke current session)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+        '400':
+          description: Cannot revoke current session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /sessions/revoke-all:
+    post:
+      tags:
+        - Sessions
+      summary: Revoke all other sessions
+      description: Revoke all sessions except the current one
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Sessions revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+                      revokedCount:
+                        type: integer
+
+  # ==================== DEVICES ENDPOINTS ====================
+  /devices:
+    get:
+      tags:
+        - Devices
+      summary: List user devices
+      description: Get all registered devices for the current user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Devices list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      devices:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Device'
+
+  /devices/{deviceId}:
+    patch:
+      tags:
+        - Devices
+      summary: Update device
+      description: Update device name
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: deviceId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+      responses:
+        '200':
+          description: Device updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      device:
+                        $ref: '#/components/schemas/Device'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Devices
+      summary: Delete device
+      description: Remove a device and revoke all its sessions
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: deviceId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Device deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+        '400':
+          description: Cannot delete current device
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /devices/{deviceId}/trust:
+    post:
+      tags:
+        - Devices
+      summary: Trust device
+      description: Mark a device as trusted (skip 2FA for trusted devices)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: deviceId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Device trusted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      device:
+                        $ref: '#/components/schemas/Device'
+
+  # ==================== USERS ENDPOINTS ====================
+  /users/me:
+    get:
+      tags:
+        - Users
+      summary: Get current user profile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/UserProfile'
+
+    delete:
+      tags:
+        - Users
+      summary: Delete account
+      description: |
+        Permanently delete the user account and all data.
+        
+        **Warning**: This action is irreversible!
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - authVerifier
+              properties:
+                authVerifier:
+                  type: string
+                  description: Auth verifier to confirm identity
+      responses:
+        '200':
+          description: Account deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+        '401':
+          description: Invalid password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /users/me/audit-logs:
+    get:
+      tags:
+        - Users
+      summary: Get audit logs
+      description: Get security audit logs for the current user
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - in: query
+          name: action
+          schema:
+            type: string
+          description: Filter by action type
+      responses:
+        '200':
+          description: Audit logs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      logs:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AuditLogEntry'
+                      page:
+                        type: integer
+                      limit:
+                        type: integer
+                      total:
+                        type: integer
+                      totalPages:
+                        type: integer

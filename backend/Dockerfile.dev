@@ -1,0 +1,23 @@
+# Development Dockerfile with hot reload
+FROM node:20-alpine
+
+# Install dependencies for native modules
+RUN apk add --no-cache python3 make g++
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies
+RUN npm ci
+
+# Copy source code (will be overwritten by volume mount)
+COPY tsconfig.json ./
+COPY src ./src
+
+# Expose port
+EXPOSE 3000
+
+# Start with hot reload
+CMD ["npm", "run", "dev"]

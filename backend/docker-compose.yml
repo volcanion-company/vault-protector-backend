@@ -1,0 +1,113 @@
+# Vault Protector Backend - Development Docker Compose
+
+services:
+  # ============ Backend API ============
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: vault-protector-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - MONGODB_URI=mongodb://mongo:27017/vault_protector
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=dev-jwt-secret-change-in-production
+      - JWT_REFRESH_SECRET=dev-refresh-secret-change-in-production
+      - CORS_ORIGINS=http://localhost:3001,http://localhost:5173,tauri://localhost
+    volumes:
+      - ./src:/app/src:delegated
+      - ./package.json:/app/package.json
+      - ./tsconfig.json:/app/tsconfig.json
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - vault-network
+
+  # ============ MongoDB ============
+  mongo:
+    image: mongo:7
+    container_name: vault-protector-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - mongo_config:/data/configdb
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    networks:
+      - vault-network
+
+  # ============ Redis ============
+  redis:
+    image: redis:7-alpine
+    container_name: vault-protector-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vault-network
+
+  # ============ Redis Commander (optional - for debugging) ============
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: vault-protector-redis-commander
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    depends_on:
+      - redis
+    networks:
+      - vault-network
+    profiles:
+      - debug
+
+  # ============ Mongo Express (optional - for debugging) ============
+  mongo-express:
+    image: mongo-express:latest
+    container_name: vault-protector-mongo-express
+    restart: unless-stopped
+    ports:
+      - "8082:8081"
+    environment:
+      - ME_CONFIG_MONGODB_URL=mongodb://mongo:27017/
+      - ME_CONFIG_BASICAUTH=false
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - vault-network
+    profiles:
+      - debug
+
+# ============ Networks ============
+networks:
+  vault-network:
+    driver: bridge
+
+# ============ Volumes ============
+volumes:
+  mongo_data:
+  mongo_config:
+  redis_data:

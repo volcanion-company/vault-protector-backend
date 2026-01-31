@@ -1,0 +1,96 @@
+# Vault Protector Backend - Production Docker Compose
+
+services:
+  # ============ Backend API ============
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vault-protector-api
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - MONGODB_URI=${MONGODB_URI}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - vault-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # ============ MongoDB ============
+  mongo:
+    image: mongo:7
+    container_name: vault-protector-mongo
+    restart: always
+    volumes:
+      - mongo_data:/data/db
+      - mongo_config:/data/configdb
+    command: mongod --quiet --logpath /dev/null
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - vault-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # ============ Redis ============
+  redis:
+    image: redis:7-alpine
+    container_name: vault-protector-redis
+    restart: always
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - vault-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+# ============ Networks ============
+networks:
+  vault-network:
+    driver: bridge
+
+# ============ Volumes ============
+volumes:
+  mongo_data:
+  mongo_config:
+  redis_data:

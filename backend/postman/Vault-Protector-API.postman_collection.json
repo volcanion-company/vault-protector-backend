@@ -1,0 +1,677 @@
+{
+  "info": {
+    "_postman_id": "vault-protector-api",
+    "name": "Vault Protector API",
+    "description": "# Vault Protector - Secure Password Manager API\n\nA zero-knowledge, end-to-end encrypted password manager.\n\n## Quick Start\n\n1. Register a new account\n2. Use the returned tokens for authenticated requests\n3. Store `accessToken` and `refreshToken` in environment variables\n\n## Environment Variables\n\n- `baseUrl`: API base URL (e.g., `http://localhost:5000/api/v1`)\n- `accessToken`: JWT access token (auto-set after login/register)\n- `refreshToken`: JWT refresh token (auto-set after login/register)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000/api/v1"
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "description": "Authentication endpoints",
+      "item": [
+        {
+          "name": "Register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('accessToken', response.data.tokens.accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', response.data.tokens.refreshToken);",
+                  "    pm.collectionVariables.set('userId', response.data.user.id);",
+                  "    pm.collectionVariables.set('deviceId', response.data.device.id);",
+                  "    console.log('Tokens saved to collection variables');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\",\n  \"authVerifier\": \"base64EncodedAuthVerifier==\",\n  \"kdf\": {\n    \"algorithm\": \"argon2id\",\n    \"salt\": \"randomBase64Salt==\",\n    \"memory\": 65536,\n    \"iterations\": 3,\n    \"parallelism\": 4\n  },\n  \"wrappedVaultKey\": \"encryptedVaultKeyBase64==\",\n  \"initialVault\": {\n    \"blob\": \"encryptedVaultDataBase64==\",\n    \"encryption\": {\n      \"algorithm\": \"aes-256-gcm\",\n      \"iv\": \"randomIvBase64==\",\n      \"authTag\": \"authTagBase64==\"\n    },\n    \"checksum\": \"sha256HashOfBlob\"\n  },\n  \"device\": {\n    \"name\": \"Postman Test\",\n    \"platform\": \"web\",\n    \"deviceIdentifier\": \"postman-unique-device-id-12345\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            },
+            "description": "Register a new user account with encrypted vault."
+          },
+          "response": [
+            {
+              "name": "Success",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"test@example.com\",\n  \"authVerifier\": \"base64EncodedAuthVerifier==\",\n  \"kdf\": {...},\n  \"wrappedVaultKey\": \"...\",\n  \"initialVault\": {...},\n  \"device\": {...}\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/auth/register",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["auth", "register"]
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": {\n      \"id\": \"507f1f77bcf86cd799439011\",\n      \"email\": \"test@example.com\",\n      \"emailVerified\": false\n    },\n    \"tokens\": {\n      \"accessToken\": \"eyJhbGciOiJIUzI1...\",\n      \"refreshToken\": \"eyJhbGciOiJIUzI1...\",\n      \"expiresIn\": 900\n    },\n    \"device\": {\n      \"id\": \"507f1f77bcf86cd799439012\",\n      \"name\": \"Postman Test\",\n      \"isNew\": true\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Prelogin",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/prelogin",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "prelogin"]
+            },
+            "description": "Get KDF parameters for a user's email before login."
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"kdf\": {\n      \"algorithm\": \"argon2id\",\n      \"salt\": \"userSaltBase64==\",\n      \"memory\": 65536,\n      \"iterations\": 3,\n      \"parallelism\": 4\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('accessToken', response.data.tokens.accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', response.data.tokens.refreshToken);",
+                  "    pm.collectionVariables.set('userId', response.data.user.id);",
+                  "    pm.collectionVariables.set('deviceId', response.data.device.id);",
+                  "    console.log('Tokens saved to collection variables');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\",\n  \"authVerifier\": \"base64EncodedAuthVerifier==\",\n  \"device\": {\n    \"name\": \"Postman Test\",\n    \"platform\": \"web\",\n    \"deviceIdentifier\": \"postman-unique-device-id-12345\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "Authenticate with auth verifier derived from master password."
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": {\n      \"id\": \"507f1f77bcf86cd799439011\",\n      \"email\": \"test@example.com\",\n      \"emailVerified\": false\n    },\n    \"tokens\": {\n      \"accessToken\": \"eyJhbGciOiJIUzI1...\",\n      \"refreshToken\": \"eyJhbGciOiJIUzI1...\",\n      \"expiresIn\": 900\n    },\n    \"device\": {\n      \"id\": \"507f1f77bcf86cd799439012\",\n      \"name\": \"Postman Test\",\n      \"isNew\": false\n    },\n    \"wrappedVaultKey\": \"encryptedVaultKeyBase64==\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('accessToken', response.data.tokens.accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', response.data.tokens.refreshToken);",
+                  "    console.log('Tokens refreshed and saved');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "refresh"]
+            },
+            "description": "Exchange refresh token for new access and refresh tokens."
+          },
+          "response": []
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "logout"]
+            },
+            "description": "Logout and revoke current session."
+          },
+          "response": []
+        },
+        {
+          "name": "Change Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentAuthVerifier\": \"currentPasswordDerivedVerifier==\",\n  \"newAuthVerifier\": \"newPasswordDerivedVerifier==\",\n  \"newWrappedVaultKey\": \"vaultKeyWrappedWithNewMasterKey==\",\n  \"newKdf\": {\n    \"algorithm\": \"argon2id\",\n    \"salt\": \"newRandomSalt==\",\n    \"memory\": 65536,\n    \"iterations\": 3,\n    \"parallelism\": 4\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/change-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "change-password"]
+            },
+            "description": "Change password. Requires current and new auth verifiers, plus re-wrapped vault key."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Vault",
+      "description": "Encrypted vault operations",
+      "item": [
+        {
+          "name": "Get Vault",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/vault",
+              "host": ["{{baseUrl}}"],
+              "path": ["vault"]
+            },
+            "description": "Retrieve the encrypted vault blob."
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"vault\": {\n      \"blob\": \"encryptedVaultBase64==\",\n      \"encryption\": {\n        \"algorithm\": \"aes-256-gcm\",\n        \"iv\": \"ivBase64==\",\n        \"authTag\": \"tagBase64==\"\n      },\n      \"checksum\": \"sha256HashOfBlob\",\n      \"version\": 1\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Update Vault",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"blob\": \"newEncryptedVaultBase64==\",\n  \"encryption\": {\n    \"algorithm\": \"aes-256-gcm\",\n    \"iv\": \"newIvBase64==\",\n    \"authTag\": \"newAuthTagBase64==\"\n  },\n  \"checksum\": \"sha256HashOfNewBlob\",\n  \"expectedVersion\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/vault",
+              "host": ["{{baseUrl}}"],
+              "path": ["vault"]
+            },
+            "description": "Update vault with new encrypted data. Uses optimistic locking via expectedVersion."
+          },
+          "response": []
+        },
+        {
+          "name": "Check Sync Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/vault/sync?version=1&checksum=localChecksum",
+              "host": ["{{baseUrl}}"],
+              "path": ["vault", "sync"],
+              "query": [
+                {
+                  "key": "version",
+                  "value": "1"
+                },
+                {
+                  "key": "checksum",
+                  "value": "localChecksum"
+                }
+              ]
+            },
+            "description": "Check if local vault is in sync with server."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Sessions",
+      "description": "Session management",
+      "item": [
+        {
+          "name": "List Sessions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sessions",
+              "host": ["{{baseUrl}}"],
+              "path": ["sessions"]
+            },
+            "description": "Get all active sessions for current user."
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"sessions\": [\n      {\n        \"id\": \"507f1f77bcf86cd799439013\",\n        \"deviceId\": \"507f1f77bcf86cd799439012\",\n        \"deviceName\": \"Postman Test\",\n        \"ipAddress\": \"127.0.0.1\",\n        \"userAgent\": \"PostmanRuntime/7.x\",\n        \"createdAt\": \"2024-01-15T10:00:00.000Z\",\n        \"lastActivityAt\": \"2024-01-15T10:30:00.000Z\",\n        \"isCurrent\": true\n      }\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Revoke Session",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sessions/:sessionId",
+              "host": ["{{baseUrl}}"],
+              "path": ["sessions", ":sessionId"],
+              "variable": [
+                {
+                  "key": "sessionId",
+                  "value": "507f1f77bcf86cd799439013",
+                  "description": "Session ID to revoke"
+                }
+              ]
+            },
+            "description": "Revoke a specific session. Cannot revoke current session."
+          },
+          "response": []
+        },
+        {
+          "name": "Revoke All Sessions",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sessions/revoke-all",
+              "host": ["{{baseUrl}}"],
+              "path": ["sessions", "revoke-all"]
+            },
+            "description": "Revoke all sessions except the current one."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Devices",
+      "description": "Device management",
+      "item": [
+        {
+          "name": "List Devices",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/devices",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices"]
+            },
+            "description": "Get all registered devices for current user."
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"devices\": [\n      {\n        \"id\": \"507f1f77bcf86cd799439012\",\n        \"name\": \"Postman Test\",\n        \"platform\": \"web\",\n        \"isTrusted\": false,\n        \"lastSeenAt\": \"2024-01-15T10:30:00.000Z\",\n        \"lastIpAddress\": \"127.0.0.1\",\n        \"createdAt\": \"2024-01-15T10:00:00.000Z\"\n      }\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Update Device",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"My Work Laptop\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/devices/:deviceId",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", ":deviceId"],
+              "variable": [
+                {
+                  "key": "deviceId",
+                  "value": "{{deviceId}}",
+                  "description": "Device ID"
+                }
+              ]
+            },
+            "description": "Update device name."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Device",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/devices/:deviceId",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", ":deviceId"],
+              "variable": [
+                {
+                  "key": "deviceId",
+                  "value": "507f1f77bcf86cd799439012",
+                  "description": "Device ID to delete"
+                }
+              ]
+            },
+            "description": "Delete a device and revoke all its sessions."
+          },
+          "response": []
+        },
+        {
+          "name": "Trust Device",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/devices/:deviceId/trust",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", ":deviceId", "trust"],
+              "variable": [
+                {
+                  "key": "deviceId",
+                  "value": "{{deviceId}}",
+                  "description": "Device ID to trust"
+                }
+              ]
+            },
+            "description": "Mark device as trusted (skip 2FA for future logins)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "description": "User profile and account",
+      "item": [
+        {
+          "name": "Get Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "me"]
+            },
+            "description": "Get current user profile."
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"user\": {\n      \"id\": \"507f1f77bcf86cd799439011\",\n      \"email\": \"test@example.com\",\n      \"emailVerified\": false,\n      \"createdAt\": \"2024-01-15T10:00:00.000Z\",\n      \"lastLoginAt\": \"2024-01-15T10:30:00.000Z\"\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Audit Logs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/audit-logs?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "me", "audit-logs"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "action",
+                  "value": "user.login",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get security audit logs."
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"logs\": [\n      {\n        \"id\": \"507f1f77bcf86cd799439014\",\n        \"action\": \"user.login\",\n        \"status\": \"success\",\n        \"ipAddress\": \"127.0.0.1\",\n        \"userAgent\": \"PostmanRuntime/7.x\",\n        \"createdAt\": \"2024-01-15T10:00:00.000Z\"\n      }\n    ],\n    \"page\": 1,\n    \"limit\": 20,\n    \"total\": 1,\n    \"totalPages\": 1\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete Account",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"authVerifier\": \"currentPasswordDerivedVerifier==\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "me"]
+            },
+            "description": "Permanently delete account and all data. This action is irreversible!"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "description": "Health check endpoints",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/health",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5000",
+              "path": ["health"]
+            },
+            "description": "Basic health check."
+          },
+          "response": []
+        },
+        {
+          "name": "Ready Check",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/ready",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5000",
+              "path": ["ready"]
+            },
+            "description": "Readiness check for load balancers."
+          },
+          "response": []
+        },
+        {
+          "name": "API Info",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/api",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5000",
+              "path": ["api"]
+            },
+            "description": "API information and available endpoints."
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Common test: Response time",
+          "pm.test('Response time is acceptable', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(2000);",
+          "});",
+          "",
+          "// Common test: Content-Type",
+          "pm.test('Content-Type is JSON', function () {",
+          "    pm.response.to.have.header('Content-Type');",
+          "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+          "});"
+        ]
+      }
+    }
+  ]
+}
